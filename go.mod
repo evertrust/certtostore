@@ -1,4 +1,4 @@
-module github.com/google/certtostore
+module github.com/evertrust/certtostore
 
 go 1.18
 
