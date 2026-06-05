@@ -12,7 +12,6 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"fmt"
-	"sort"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -591,85 +590,19 @@ func (s *Store) RenewCert(cn string, newCert *x509.Certificate, newChain []*x509
 	return s.StoreCertWithChain(newCert, newChain)
 }
 
-// certArchivedPropID is CERT_ARCHIVED_PROP_ID: marks a cert as hidden from enumeration.
-const certArchivedPropID = 19
+// DeleteCertByThumbprint permanently removes the certificate identified by its
+// hex-encoded SHA-1 thumbprint from the store. Returns nil if not found.
+func (s *Store) DeleteCertByThumbprint(thumbprint string) error {
+	hashBytes, err := hex.DecodeString(thumbprint)
+	if err != nil {
+		return fmt.Errorf("decode thumbprint %q: %v", thumbprint, err)
+	}
 
-// ApplyCertArchivalPolicy manages old certificates in the store after a renewal.
-//
-// It finds all certificates whose subject contains subject, excluding the one
-// identified by currentThumbprint (the newly stored cert), then:
-//
-//   - policy == 0: archives every old cert (sets CERT_ARCHIVED_PROP_ID so it
-//     remains in the store but is hidden from normal enumeration).
-//   - policy > 0: sorts old certs by NotBefore descending and keeps the N most
-//     recent, permanently deleting any beyond that.
-func (s *Store) ApplyCertArchivalPolicy(subject string, policy int, currentThumbprint string) error {
 	h, err := s.ws.storeHandle(s.domain, s.storePtr)
 	if err != nil {
 		return fmt.Errorf("open store handle: %v", err)
 	}
 
-	type entry struct {
-		thumbprint    string
-		notBeforeUnix int64
-	}
-	var entries []entry
-
-	var prev *windows.CertContext
-	for {
-		ctx, err := findCert(h, encodingX509ASN|encodingPKCS7, 0, windows.CERT_FIND_SUBJECT_STR, wide(subject), prev)
-		if err != nil {
-			return fmt.Errorf("enumerate certs for subject %q: %v", subject, err)
-		}
-		if ctx == nil {
-			break
-		}
-		cert, parseErr := certContextToX509(ctx)
-		if parseErr == nil {
-			// #nosec — SHA1 is mandated by the Windows cert store thumbprint convention.
-			thumb := fmt.Sprintf("%x", sha1.Sum(cert.Raw))
-			if thumb != currentThumbprint {
-				entries = append(entries, entry{thumb, cert.NotBefore.Unix()})
-			}
-		}
-		prev = ctx
-	}
-
-	if len(entries) == 0 {
-		return nil
-	}
-
-	if policy == 0 {
-		for _, e := range entries {
-			if err := s.archiveCertByThumbprint(h, e.thumbprint); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-
-	// Keep the N most recent old certs; delete the rest.
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].notBeforeUnix > entries[j].notBeforeUnix
-	})
-	for i, e := range entries {
-		if i < policy {
-			continue
-		}
-		if err := s.deleteCertByThumbprint(h, e.thumbprint); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// archiveCertByThumbprint finds a certificate by its SHA-1 thumbprint and sets
-// CERT_ARCHIVED_PROP_ID so it is hidden from normal enumeration but stays in the store.
-func (s *Store) archiveCertByThumbprint(h windows.Handle, thumbprint string) error {
-	hashBytes, err := hex.DecodeString(thumbprint)
-	if err != nil {
-		return fmt.Errorf("decode thumbprint: %v", err)
-	}
 	hashBlob := windows.CryptHashBlob{Size: uint32(len(hashBytes)), Data: &hashBytes[0]}
 	r, _, _ := certFindCertificateInStore.Call(
 		uintptr(h),
@@ -680,44 +613,8 @@ func (s *Store) archiveCertByThumbprint(h windows.Handle, thumbprint string) err
 		0,
 	)
 	if r == 0 {
-		return nil // already gone
+		return nil // not found — nothing to delete
 	}
 	ctx := (*windows.CertContext)(unsafe.Pointer(r))
-	defer windows.CertFreeCertificateContext(ctx)
-
-	// Pass a non-NULL pvData with zero length to set the property (NULL would delete it).
-	var sentinel uint32
-	rr, _, callErr := certSetCertificateContextProperty.Call(
-		uintptr(unsafe.Pointer(ctx)),
-		certArchivedPropID,
-		0,
-		uintptr(unsafe.Pointer(&sentinel)),
-	)
-	if rr == 0 {
-		return fmt.Errorf("archive cert %s: %v", thumbprint[:8], callErr)
-	}
-	return nil
-}
-
-// deleteCertByThumbprint finds a certificate by its SHA-1 thumbprint and permanently
-// removes it from the store.
-func (s *Store) deleteCertByThumbprint(h windows.Handle, thumbprint string) error {
-	hashBytes, err := hex.DecodeString(thumbprint)
-	if err != nil {
-		return fmt.Errorf("decode thumbprint: %v", err)
-	}
-	hashBlob := windows.CryptHashBlob{Size: uint32(len(hashBytes)), Data: &hashBytes[0]}
-	r, _, _ := certFindCertificateInStore.Call(
-		uintptr(h),
-		uintptr(encodingX509ASN|encodingPKCS7),
-		0,
-		uintptr(windows.CERT_FIND_SHA1_HASH),
-		uintptr(unsafe.Pointer(&hashBlob)),
-		0,
-	)
-	if r == 0 {
-		return nil // already gone
-	}
-	ctx := (*windows.CertContext)(unsafe.Pointer(r))
-	return RemoveCertByContext(ctx) // CertDeleteCertificateFromStore takes ownership and frees ctx
+	return RemoveCertByContext(ctx) // takes ownership and frees ctx
 }
