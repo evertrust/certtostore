@@ -91,9 +91,9 @@ type StoreOpenOptions struct {
 // Store provides a high-level interface for Windows certificate store operations.
 // Obtain one via OpenStore and release resources with Close.
 type Store struct {
-	ws        *WinCertStore
-	storePtr  *uint16 // wide store name used for cert lookups
-	domain    uint32  // certStoreCurrentUser or certStoreLocalMachine
+	ws       *WinCertStore
+	storePtr *uint16 // wide store name used for cert lookups
+	domain   uint32  // certStoreCurrentUser or certStoreLocalMachine
 }
 
 // OpenStore opens a Windows certificate store.
@@ -362,10 +362,26 @@ func (s *Store) StoreCertWithChain(cert *x509.Certificate, chain []*x509.Certifi
 	if err != nil {
 		return fmt.Errorf("open leaf store: %v", err)
 	}
+	var storeCtx *windows.CertContext
 	if err := windows.CertAddCertificateContextToStore(
-		leafHandle, certCtx, windows.CERT_STORE_ADD_REPLACE_EXISTING, nil,
+		leafHandle, certCtx, windows.CERT_STORE_ADD_REPLACE_EXISTING, &storeCtx,
 	); err != nil {
 		return fmt.Errorf("CertAddCertificateContextToStore (leaf): %v", err)
+	}
+	// Re-run key association on the live store-backed context. When replacing an
+	// existing entry, CERT_STORE_ADD_REPLACE_EXISTING may preserve the old
+	// CERT_KEY_PROV_INFO_PROP_ID from the store rather than copying the one set
+	// on the in-memory certCtx above. Running CryptFindCertificateKeyProvInfo on
+	// the returned store context ensures the property is written to the persistent
+	// entry, preventing ERROR_NO_SUCH_LOGON_SESSION (1312) from netsh.
+	r2, _, callErr2 := cryptFindCertificateKeyProvInfo.Call(
+		uintptr(unsafe.Pointer(storeCtx)),
+		uintptr(s.ws.cryptFindFlags()),
+		0,
+	)
+	windows.CertFreeCertificateContext(storeCtx)
+	if r2 == 0 {
+		return fmt.Errorf("CryptFindCertificateKeyProvInfo (store context): %v", callErr2)
 	}
 
 	caHandle, err := s.ws.storeHandle(s.domain, ca)
@@ -411,9 +427,9 @@ type ncryptBuffer struct {
 
 // ncryptBufferDesc mirrors the Windows NCryptBufferDesc structure.
 type ncryptBufferDesc struct {
-	Version  uint32
-	NumBufs  uint32
-	Buffers  uintptr
+	Version uint32
+	NumBufs uint32
+	Buffers uintptr
 }
 
 // cryptKeyProvInfo mirrors the Windows CRYPT_KEY_PROV_INFO structure.
@@ -505,9 +521,9 @@ func (s *Store) ImportCertAndKey(cert *x509.Certificate, chain []*x509.Certifica
 	keyProvInfo := cryptKeyProvInfo{
 		ContainerName: containerNameW,
 		ProvName:      wide(ProviderMSSoftware),
-		ProvType:      0,                       // 0 = CNG provider
+		ProvType:      0, // 0 = CNG provider
 		Flags:         uint32(s.ws.keyAccessFlags),
-		KeySpec:       ncryptKeySpec,            // CERT_NCRYPT_KEY_SPEC = 0xFFFFFFFF
+		KeySpec:       ncryptKeySpec, // CERT_NCRYPT_KEY_SPEC = 0xFFFFFFFF
 	}
 	rr, _, callErr := certSetCertificateContextProperty.Call(
 		uintptr(unsafe.Pointer(certCtx)),
@@ -523,10 +539,26 @@ func (s *Store) ImportCertAndKey(cert *x509.Certificate, chain []*x509.Certifica
 	if err != nil {
 		return fmt.Errorf("open leaf store: %v", err)
 	}
+	var storeCtx *windows.CertContext
 	if err := windows.CertAddCertificateContextToStore(
-		leafHandle, certCtx, windows.CERT_STORE_ADD_REPLACE_EXISTING, nil,
+		leafHandle, certCtx, windows.CERT_STORE_ADD_REPLACE_EXISTING, &storeCtx,
 	); err != nil {
 		return fmt.Errorf("CertAddCertificateContextToStore (leaf): %v", err)
+	}
+	// Re-set CERT_KEY_PROV_INFO_PROP_ID on the live store-backed context. When
+	// replacing an existing entry, CERT_STORE_ADD_REPLACE_EXISTING may preserve the
+	// old property from the store rather than copying the one set on the in-memory
+	// certCtx above. Writing it directly to the returned store context ensures the
+	// association is persisted, preventing ERROR_NO_SUCH_LOGON_SESSION (1312) from netsh.
+	rr2, _, callErr2 := certSetCertificateContextProperty.Call(
+		uintptr(unsafe.Pointer(storeCtx)),
+		uintptr(cryptKeyProvInfoPropID),
+		0,
+		uintptr(unsafe.Pointer(&keyProvInfo)),
+	)
+	windows.CertFreeCertificateContext(storeCtx)
+	if rr2 == 0 {
+		return fmt.Errorf("CertSetCertificateContextProperty (store context): %v", callErr2)
 	}
 
 	caHandle, err := s.ws.storeHandle(s.domain, ca)
