@@ -351,7 +351,7 @@ func (s *Store) StoreCertWithChain(cert *x509.Certificate, chain []*x509.Certifi
 	// Associate the matching private key already present in the key store.
 	r, _, callErr := cryptFindCertificateKeyProvInfo.Call(
 		uintptr(unsafe.Pointer(certCtx)),
-		uintptr(uint32(0)),
+		uintptr(s.ws.cryptFindFlags()),
 		0,
 	)
 	if r == 0 {

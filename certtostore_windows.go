@@ -127,6 +127,14 @@ const (
 	nCryptMachineKey   = 0x20 // NCRYPT_MACHINE_KEY_FLAG
 	nCryptOverwriteKey = 0x80 // NCRYPT_OVERWRITE_KEY_FLAG
 
+	// cryptFindMachineKeysetFlag is CRYPT_FIND_MACHINE_KEYSET_FLAG (wincrypt.h).
+	// Pass this to CryptFindCertificateKeyProvInfo when the target cert store is
+	// machine-scoped. Without it, the function searches the *current user's* key
+	// storage, misses machine-stored keys, and returns FALSE — causing consumers
+	// that run as SYSTEM (HTTP.SYS, netsh http add sslcert) to see error 1312
+	// even though the cert is visible in LocalMachine\My.
+	cryptFindMachineKeysetFlag = uint32(0x2) // CRYPT_FIND_MACHINE_KEYSET_FLAG
+
 	// winerror.h constants
 	cryptENotFound windows.Errno = 0x80092004 // CRYPT_E_NOT_FOUND
 
@@ -501,6 +509,19 @@ func (w *WinCertStore) storeDomain() uint32 {
 		return certStoreLocalMachine
 	}
 	return certStoreCurrentUser
+}
+
+// cryptFindFlags returns the dwFlags for CryptFindCertificateKeyProvInfo that
+// matches this store's key scope. Machine-scoped stores need
+// CRYPT_FIND_MACHINE_KEYSET_FLAG so the search targets C:\ProgramData\Microsoft\Crypto\Keys
+// rather than the current user's roaming profile. Without the flag, SYSTEM-context
+// consumers (HTTP.SYS, netsh http add sslcert) cannot resolve the key and fail
+// with error 1312 ("a specified logon session does not exist").
+func (w *WinCertStore) cryptFindFlags() uint32 {
+	if w.keyAccessFlags&nCryptMachineKey != 0 {
+		return cryptFindMachineKeysetFlag
+	}
+	return 0
 }
 
 // resolveCertChains builds chains to roots from a given certificate using the local machine store.
@@ -1618,7 +1639,7 @@ func (w *WinCertStore) StoreWithDisposition(cert *x509.Certificate, intermediate
 	// Associate the private key we previously generated
 	r, _, err := cryptFindCertificateKeyProvInfo.Call(
 		uintptr(unsafe.Pointer(certContext)),
-		uintptr(uint32(0)),
+		uintptr(w.cryptFindFlags()),
 		0,
 	)
 	// Windows calls will fill err with a success message, r is what must be checked instead
