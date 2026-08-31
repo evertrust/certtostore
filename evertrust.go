@@ -545,20 +545,19 @@ func (s *Store) ImportCertAndKey(cert *x509.Certificate, chain []*x509.Certifica
 	); err != nil {
 		return fmt.Errorf("CertAddCertificateContextToStore (leaf): %v", err)
 	}
-	// Re-set CERT_KEY_PROV_INFO_PROP_ID on the live store-backed context. When
-	// replacing an existing entry, CERT_STORE_ADD_REPLACE_EXISTING may preserve the
-	// old property from the store rather than copying the one set on the in-memory
-	// certCtx above. Writing it directly to the returned store context ensures the
-	// association is persisted, preventing ERROR_NO_SUCH_LOGON_SESSION (1312) from netsh.
-	rr2, _, callErr2 := certSetCertificateContextProperty.Call(
+	// Re-run key association on the live store-backed context. CertSetCertificateContextProperty
+	// on a store-backed context does not reliably persist to the registry on all Windows
+	// versions. CryptFindCertificateKeyProvInfo scans the CNG provider, matches the key by
+	// public key, and writes CERT_KEY_PROV_INFO_PROP_ID (including CRYPT_MACHINE_KEYSET)
+	// via the registry-backed store path — exactly what certutil -repairstore does.
+	r2, _, callErr2 := cryptFindCertificateKeyProvInfo.Call(
 		uintptr(unsafe.Pointer(storeCtx)),
-		uintptr(cryptKeyProvInfoPropID),
+		uintptr(s.ws.cryptFindFlags()),
 		0,
-		uintptr(unsafe.Pointer(&keyProvInfo)),
 	)
 	windows.CertFreeCertificateContext(storeCtx)
-	if rr2 == 0 {
-		return fmt.Errorf("CertSetCertificateContextProperty (store context): %v", callErr2)
+	if r2 == 0 {
+		return fmt.Errorf("CryptFindCertificateKeyProvInfo (store context): %v", callErr2)
 	}
 
 	caHandle, err := s.ws.storeHandle(s.domain, ca)
