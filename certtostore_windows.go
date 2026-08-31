@@ -41,8 +41,8 @@ import (
 	"unsafe"
 
 	"github.com/google/deck"
-	"golang.org/x/crypto/cryptobyte/asn1"
 	"golang.org/x/crypto/cryptobyte"
+	"golang.org/x/crypto/cryptobyte/asn1"
 	"golang.org/x/sys/windows"
 )
 
@@ -127,12 +127,7 @@ const (
 	nCryptMachineKey   = 0x20 // NCRYPT_MACHINE_KEY_FLAG
 	nCryptOverwriteKey = 0x80 // NCRYPT_OVERWRITE_KEY_FLAG
 
-	// cryptFindMachineKeysetFlag is CRYPT_FIND_MACHINE_KEYSET_FLAG (wincrypt.h).
-	// Pass this to CryptFindCertificateKeyProvInfo when the target cert store is
-	// machine-scoped. Without it, the function searches the *current user's* key
-	// storage, misses machine-stored keys, and returns FALSE — causing consumers
-	// that run as SYSTEM (HTTP.SYS, netsh http add sslcert) to see error 1312
-	// even though the cert is visible in LocalMachine\My.
+	// wincrypt.h constants
 	cryptFindMachineKeysetFlag = uint32(0x2) // CRYPT_FIND_MACHINE_KEYSET_FLAG
 
 	// winerror.h constants
@@ -214,14 +209,14 @@ var (
 	crypt32 = windows.MustLoadDLL("crypt32.dll")
 	nCrypt  = windows.MustLoadDLL("ncrypt.dll")
 
-	certDeleteCertificateFromStore      = crypt32.MustFindProc("CertDeleteCertificateFromStore")
-	certFindCertificateInStore          = crypt32.MustFindProc("CertFindCertificateInStore")
-	certFreeCertificateChain            = crypt32.MustFindProc("CertFreeCertificateChain")
-	certGetCertificateChain             = crypt32.MustFindProc("CertGetCertificateChain")
-	certGetIntendedKeyUsage             = crypt32.MustFindProc("CertGetIntendedKeyUsage")
-	certSetCertificateContextProperty   = crypt32.MustFindProc("CertSetCertificateContextProperty")
-	cryptAcquireCertificatePrivateKey   = crypt32.MustFindProc("CryptAcquireCertificatePrivateKey")
-	cryptFindCertificateKeyProvInfo     = crypt32.MustFindProc("CryptFindCertificateKeyProvInfo")
+	certDeleteCertificateFromStore    = crypt32.MustFindProc("CertDeleteCertificateFromStore")
+	certFindCertificateInStore        = crypt32.MustFindProc("CertFindCertificateInStore")
+	certFreeCertificateChain          = crypt32.MustFindProc("CertFreeCertificateChain")
+	certGetCertificateChain           = crypt32.MustFindProc("CertGetCertificateChain")
+	certGetIntendedKeyUsage           = crypt32.MustFindProc("CertGetIntendedKeyUsage")
+	certSetCertificateContextProperty = crypt32.MustFindProc("CertSetCertificateContextProperty")
+	cryptAcquireCertificatePrivateKey = crypt32.MustFindProc("CryptAcquireCertificatePrivateKey")
+	cryptFindCertificateKeyProvInfo   = crypt32.MustFindProc("CryptFindCertificateKeyProvInfo")
 	nCryptCreatePersistedKey          = nCrypt.MustFindProc("NCryptCreatePersistedKey")
 	nCryptDecrypt                     = nCrypt.MustFindProc("NCryptDecrypt")
 	nCryptExportKey                   = nCrypt.MustFindProc("NCryptExportKey")
@@ -512,11 +507,7 @@ func (w *WinCertStore) storeDomain() uint32 {
 }
 
 // cryptFindFlags returns the dwFlags for CryptFindCertificateKeyProvInfo that
-// matches this store's key scope. Machine-scoped stores need
-// CRYPT_FIND_MACHINE_KEYSET_FLAG so the search targets C:\ProgramData\Microsoft\Crypto\Keys
-// rather than the current user's roaming profile. Without the flag, SYSTEM-context
-// consumers (HTTP.SYS, netsh http add sslcert) cannot resolve the key and fail
-// with error 1312 ("a specified logon session does not exist").
+// matches this store's key scope
 func (w *WinCertStore) cryptFindFlags() uint32 {
 	if w.keyAccessFlags&nCryptMachineKey != 0 {
 		return cryptFindMachineKeysetFlag
