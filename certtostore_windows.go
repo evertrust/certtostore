@@ -41,8 +41,8 @@ import (
 	"unsafe"
 
 	"github.com/google/deck"
-	"golang.org/x/crypto/cryptobyte/asn1"
 	"golang.org/x/crypto/cryptobyte"
+	"golang.org/x/crypto/cryptobyte/asn1"
 	"golang.org/x/sys/windows"
 )
 
@@ -127,6 +127,9 @@ const (
 	nCryptMachineKey   = 0x20 // NCRYPT_MACHINE_KEY_FLAG
 	nCryptOverwriteKey = 0x80 // NCRYPT_OVERWRITE_KEY_FLAG
 
+	// wincrypt.h constants
+	cryptFindMachineKeysetFlag = uint32(0x2) // CRYPT_FIND_MACHINE_KEYSET_FLAG
+
 	// winerror.h constants
 	cryptENotFound windows.Errno = 0x80092004 // CRYPT_E_NOT_FOUND
 
@@ -206,14 +209,14 @@ var (
 	crypt32 = windows.MustLoadDLL("crypt32.dll")
 	nCrypt  = windows.MustLoadDLL("ncrypt.dll")
 
-	certDeleteCertificateFromStore      = crypt32.MustFindProc("CertDeleteCertificateFromStore")
-	certFindCertificateInStore          = crypt32.MustFindProc("CertFindCertificateInStore")
-	certFreeCertificateChain            = crypt32.MustFindProc("CertFreeCertificateChain")
-	certGetCertificateChain             = crypt32.MustFindProc("CertGetCertificateChain")
-	certGetIntendedKeyUsage             = crypt32.MustFindProc("CertGetIntendedKeyUsage")
-	certSetCertificateContextProperty   = crypt32.MustFindProc("CertSetCertificateContextProperty")
-	cryptAcquireCertificatePrivateKey   = crypt32.MustFindProc("CryptAcquireCertificatePrivateKey")
-	cryptFindCertificateKeyProvInfo     = crypt32.MustFindProc("CryptFindCertificateKeyProvInfo")
+	certDeleteCertificateFromStore    = crypt32.MustFindProc("CertDeleteCertificateFromStore")
+	certFindCertificateInStore        = crypt32.MustFindProc("CertFindCertificateInStore")
+	certFreeCertificateChain          = crypt32.MustFindProc("CertFreeCertificateChain")
+	certGetCertificateChain           = crypt32.MustFindProc("CertGetCertificateChain")
+	certGetIntendedKeyUsage           = crypt32.MustFindProc("CertGetIntendedKeyUsage")
+	certSetCertificateContextProperty = crypt32.MustFindProc("CertSetCertificateContextProperty")
+	cryptAcquireCertificatePrivateKey = crypt32.MustFindProc("CryptAcquireCertificatePrivateKey")
+	cryptFindCertificateKeyProvInfo   = crypt32.MustFindProc("CryptFindCertificateKeyProvInfo")
 	nCryptCreatePersistedKey          = nCrypt.MustFindProc("NCryptCreatePersistedKey")
 	nCryptDecrypt                     = nCrypt.MustFindProc("NCryptDecrypt")
 	nCryptExportKey                   = nCrypt.MustFindProc("NCryptExportKey")
@@ -501,6 +504,15 @@ func (w *WinCertStore) storeDomain() uint32 {
 		return certStoreLocalMachine
 	}
 	return certStoreCurrentUser
+}
+
+// cryptFindFlags returns the dwFlags for CryptFindCertificateKeyProvInfo that
+// matches this store's key scope
+func (w *WinCertStore) cryptFindFlags() uint32 {
+	if w.keyAccessFlags&nCryptMachineKey != 0 {
+		return cryptFindMachineKeysetFlag
+	}
+	return 0
 }
 
 // resolveCertChains builds chains to roots from a given certificate using the local machine store.
@@ -1618,7 +1630,7 @@ func (w *WinCertStore) StoreWithDisposition(cert *x509.Certificate, intermediate
 	// Associate the private key we previously generated
 	r, _, err := cryptFindCertificateKeyProvInfo.Call(
 		uintptr(unsafe.Pointer(certContext)),
-		uintptr(uint32(0)),
+		uintptr(w.cryptFindFlags()),
 		0,
 	)
 	// Windows calls will fill err with a success message, r is what must be checked instead
