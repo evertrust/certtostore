@@ -91,9 +91,9 @@ type StoreOpenOptions struct {
 // Store provides a high-level interface for Windows certificate store operations.
 // Obtain one via OpenStore and release resources with Close.
 type Store struct {
-	ws        *WinCertStore
-	storePtr  *uint16 // wide store name used for cert lookups
-	domain    uint32  // certStoreCurrentUser or certStoreLocalMachine
+	ws       *WinCertStore
+	storePtr *uint16 // wide store name used for cert lookups
+	domain   uint32  // certStoreCurrentUser or certStoreLocalMachine
 }
 
 // OpenStore opens a Windows certificate store.
@@ -411,13 +411,13 @@ type ncryptBuffer struct {
 
 // ncryptBufferDesc mirrors the Windows NCryptBufferDesc structure.
 type ncryptBufferDesc struct {
-	Version  uint32
-	NumBufs  uint32
-	Buffers  uintptr
+	Version uint32
+	NumBufs uint32
+	Buffers uintptr
 }
 
 // cryptKeyProvInfo mirrors the Windows CRYPT_KEY_PROV_INFO structure.
-// For CNG keys dwProvType must be 0 and dwKeySpec must be CERT_NCRYPT_KEY_SPEC.
+// For CNG machine keys dwProvType must be 0 and dwKeySpec must be 0 (AT_NONE).
 type cryptKeyProvInfo struct {
 	ContainerName  *uint16
 	ProvName       *uint16
@@ -505,9 +505,9 @@ func (s *Store) ImportCertAndKey(cert *x509.Certificate, chain []*x509.Certifica
 	keyProvInfo := cryptKeyProvInfo{
 		ContainerName: containerNameW,
 		ProvName:      wide(ProviderMSSoftware),
-		ProvType:      0,                       // 0 = CNG provider
+		ProvType:      0, // 0 = CNG provider
 		Flags:         uint32(s.ws.keyAccessFlags),
-		KeySpec:       ncryptKeySpec,            // CERT_NCRYPT_KEY_SPEC = 0xFFFFFFFF
+		KeySpec:       0, // AT_NONE — machine CNG keys; session-independent path required by HTTP.sys/SCHANNEL
 	}
 	rr, _, callErr := certSetCertificateContextProperty.Call(
 		uintptr(unsafe.Pointer(certCtx)),
