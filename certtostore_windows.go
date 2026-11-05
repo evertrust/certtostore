@@ -128,7 +128,8 @@ const (
 	nCryptOverwriteKey = 0x80 // NCRYPT_OVERWRITE_KEY_FLAG
 
 	// wincrypt.h constants
-	cryptFindMachineKeysetFlag = uint32(0x2) // CRYPT_FIND_MACHINE_KEYSET_FLAG
+	cryptFindMachineKeysetFlag = uint32(0x2)  // CRYPT_FIND_MACHINE_KEYSET_FLAG
+	cryptFindSilentKeysetFlag  = uint32(0x40) // CRYPT_FIND_SILENT_KEYSET_FLAG
 
 	// winerror.h constants
 	cryptENotFound windows.Errno = 0x80092004 // CRYPT_E_NOT_FOUND
@@ -507,12 +508,14 @@ func (w *WinCertStore) storeDomain() uint32 {
 }
 
 // cryptFindFlags returns the dwFlags for CryptFindCertificateKeyProvInfo that
-// matches this store's key scope
+// matches this store's key scope. The lookup is always silent: a provider that
+// needs user input (a smart card asking for its card or PIN) would otherwise
+// show UI, which blocks forever in a service or a remote session.
 func (w *WinCertStore) cryptFindFlags() uint32 {
 	if w.keyAccessFlags&nCryptMachineKey != 0 {
-		return cryptFindMachineKeysetFlag
+		return cryptFindMachineKeysetFlag | cryptFindSilentKeysetFlag
 	}
-	return 0
+	return cryptFindSilentKeysetFlag
 }
 
 // resolveCertChains builds chains to roots from a given certificate using the local machine store.
@@ -694,7 +697,7 @@ func (w *WinCertStore) Link() error {
 	// Associate the private key we previously generated
 	r, _, err := cryptFindCertificateKeyProvInfo.Call(
 		uintptr(unsafe.Pointer(certContext)),
-		uintptr(uint32(0)),
+		uintptr(cryptFindSilentKeysetFlag),
 		0,
 	)
 	// Windows calls will fill err with a success message, r is what must be checked instead
