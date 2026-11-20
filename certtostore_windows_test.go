@@ -58,6 +58,8 @@ func TestGetPropertyStr(t *testing.T) {
 			err1,
 		},
 	}
+	original := fnGetProperty
+	t.Cleanup(func() { fnGetProperty = original })
 	for _, tt := range tests {
 		fnGetProperty = func(kh uintptr, property *uint16) ([]byte, error) {
 			return tt.out, tt.err

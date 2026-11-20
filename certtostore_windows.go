@@ -928,10 +928,16 @@ func (k Key) Public() crypto.PublicKey {
 
 // Sign returns the signature of a hash to implement crypto.Signer
 func (k Key) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+	if len(digest) == 0 {
+		return nil, errors.New("cannot sign an empty digest")
+	}
 	switch k.AlgorithmGroup {
 	case "ECDSA", "ECDH":
 		return signECDSA(k.handle, digest)
 	case "RSA":
+		if opts == nil {
+			return nil, errors.New("RSA signing needs signer options to pick the hash")
+		}
 		return signRSA(k.handle, digest, opts)
 	default:
 		return nil, fmt.Errorf("unsupported algorithm group %v", k.AlgorithmGroup)
@@ -1086,6 +1092,9 @@ func (k Key) Decrypt(rand io.Reader, blob []byte, opts crypto.DecrypterOpts) ([]
 	decrypterOpts, ok := opts.(DecrypterOpts)
 	if !ok {
 		return nil, errors.New("opts was not certtostore.DecrypterOpts")
+	}
+	if len(blob) == 0 {
+		return nil, errors.New("cannot decrypt an empty blob")
 	}
 
 	algID, ok := algIDs[decrypterOpts.Hashfunc]

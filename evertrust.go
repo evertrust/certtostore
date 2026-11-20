@@ -233,9 +233,9 @@ func (s *Store) FindCertByCommonName(cn string) (*CertResult, error) {
 // Returns (nil, nil) when no matching certificate exists.
 // Returns a CertResult with KeyStatus set when a private key is accessible.
 func (s *Store) FindCertByThumbprint(thumbprint string) (*CertResult, error) {
-	hashBytes, err := hex.DecodeString(thumbprint)
+	hashBytes, err := decodeThumbprint(thumbprint)
 	if err != nil {
-		return nil, fmt.Errorf("decode thumbprint %q: %v", thumbprint, err)
+		return nil, err
 	}
 
 	h, err := s.ws.storeHandle(s.domain, s.storePtr)
@@ -593,9 +593,9 @@ func (s *Store) RenewCert(cn string, newCert *x509.Certificate, newChain []*x509
 // DeleteCertByThumbprint permanently removes the certificate identified by its
 // hex-encoded SHA-1 thumbprint from the store. Returns nil if not found.
 func (s *Store) DeleteCertByThumbprint(thumbprint string) error {
-	hashBytes, err := hex.DecodeString(thumbprint)
+	hashBytes, err := decodeThumbprint(thumbprint)
 	if err != nil {
-		return fmt.Errorf("decode thumbprint %q: %v", thumbprint, err)
+		return err
 	}
 
 	h, err := s.ws.storeHandle(s.domain, s.storePtr)
