@@ -1,7 +1,5 @@
 # CertToStore
 
-[![Go Tests](https://github.com/google/certtostore/workflows/Go%20Tests/badge.svg)](https://github.com/google/certtostore/actions?query=workflow%3A%22Go+Tests%22)
-
 CertToStore is a multi-platform package that allows you to work with x509
 certificates on Linux and the certificate store on Windows.
 
@@ -34,11 +32,6 @@ certificate requests using the TPM, and send them to your own third-party CA?
 Have a Go based web server that you want to use with a TPM backed certificate?
 Sure thing.
 
-## Contact
+## License
 
-We have a public discussion list at
-[certtostore-discuss@googlegroups.com](https://groups.google.com/forum/#!forum/certtostore-discuss)
-
-## Disclaimer
-
-This is not an official Google product.
+Apache License 2.0, see [LICENSE](LICENSE).
