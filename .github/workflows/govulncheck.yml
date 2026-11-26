@@ -10,7 +10,8 @@ permissions:
 
 jobs:
   govulncheck:
-    runs-on: ubuntu-latest
+    # Only scheduled and manual runs, never fork pull requests, so the Runs-On runners are safe here.
+    runs-on: runs-on=${{ github.run_id }}/runner=evertrust
     strategy:
       fail-fast: false
       matrix:
@@ -19,8 +20,11 @@ jobs:
       GOOS: ${{ matrix.goos }}
       GOARCH: amd64
     steps:
+      - name: Configure Runs-On
+        uses: runs-on/action@v2
+
       - name: Check out code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       # Latest stable Go so stdlib vulnerabilities fixed in a patch release are not reported.
       - name: Install Go
