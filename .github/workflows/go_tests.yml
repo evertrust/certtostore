@@ -2,15 +2,22 @@ name: Go Tests
 on: [push, pull_request]
 jobs:
   go_tests:
-    runs-on: windows-latest
+    # This repository is public: pull requests from forks run on GitHub-hosted runners so that
+    # outside code never runs on the Evertrust Runs-On runners.
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'windows-latest' || format('runs-on={0}/runner=evertrust-windows', github.run_id) }}
     steps:
-      - name: Install Go
-        uses: actions/setup-go@v3
-        with:
-          go-version: 1.22.x
+      - name: Configure Runs-On
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: runs-on/action@v2
 
+      # Checkout must come first: setup-go reads the Go version from go.mod.
       - name: Check out code into the Go module directory
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
+
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
 
       # false positives: https://github.com/golang/go/issues/41205
       #- name: Run vet

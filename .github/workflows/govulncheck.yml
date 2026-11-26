@@ -1,0 +1,41 @@
+name: Vulnerability scan
+on:
+  schedule:
+    # Every Monday at 06:00 UTC. Scheduled runs use the default branch (master).
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  govulncheck:
+    # Only scheduled and manual runs, never fork pull requests, so the Runs-On runners are safe here.
+    runs-on: runs-on=${{ github.run_id }}/runner=evertrust
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [windows, linux]
+    env:
+      GOOS: ${{ matrix.goos }}
+      GOARCH: amd64
+    steps:
+      - name: Configure Runs-On
+        uses: runs-on/action@v2
+
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      # Latest stable Go so stdlib vulnerabilities fixed in a patch release are not reported.
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: stable
+          check-latest: true
+
+      - name: Install govulncheck
+        run: GOOS= GOARCH= go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      # Fails the job when vulnerable code is reachable from this module.
+      - name: Run govulncheck
+        run: govulncheck -show verbose ./...
