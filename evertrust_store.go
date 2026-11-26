@@ -119,7 +119,8 @@ func (s *Store) AddCertificate(cert *x509.Certificate) error {
 
 // ImportPFX imports the certificates of a PKCS#12 blob into the store, replacing the ones it
 // already holds, with their keys in the key set of the store's location. The provider and the
-// friendly name come from the attributes of the PKCS#12.
+// friendly name come from the attributes of the PKCS#12. A key that names no provider goes to
+// a CNG key storage provider, the only kind the key lookups of this package open.
 func (s *Store) ImportPFX(data []byte, password string, exportable bool) error {
 	if len(data) == 0 {
 		return errors.New("no PKCS#12 to import")
@@ -132,9 +133,11 @@ func (s *Store) ImportPFX(data []byte, password string, exportable bool) error {
 	if err != nil {
 		return err
 	}
-	flags := uint32(cryptUserKeyset)
+	// Without PKCS12_PREFER_CNG_KSP, an RSA key with no provider attribute lands in a legacy
+	// CryptoAPI CSP, which CertKey (CRYPT_ACQUIRE_ONLY_NCRYPT_KEY_FLAG) cannot open.
+	flags := uint32(cryptUserKeyset | windows.PKCS12_PREFER_CNG_KSP)
 	if s.domain == certStoreLocalMachine {
-		flags = cryptMachineKeyset
+		flags = cryptMachineKeyset | windows.PKCS12_PREFER_CNG_KSP
 	}
 	if exportable {
 		flags |= cryptExportable
